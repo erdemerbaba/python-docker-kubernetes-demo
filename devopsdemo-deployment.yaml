@@ -1,1 +1,120 @@
-will be added soon
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless-service
+  namespace: devops
+  labels:
+    app: postgres
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-statefulset
+  namespace: devops
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres-headless-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: linux7-225-133-223
+      containers:
+        - name: postgres
+          image: cd-docker-hub.szxy5.artifactory.cd-cloud-artifact.tools.huawei.com/onemae/postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: flask_user
+            - name: POSTGRES_PASSWORD
+              value: admin
+            - name: POSTGRES_DB
+              value: flask_crud_db
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        storageClassName: ""
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flask-db-secret
+  namespace: devops
+type: Opaque
+data:
+  database_url: cG9zdGdyZXNxbDovL2ZsYXNrX3VzZXI6YWRtaW5AcG9zdGdyZXMtaGVhZGxlc3Mtc2VydmljZTo1NDMyL2ZsYXNrX2NydWRfZGI=
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-web-deployment
+  namespace: devops
+  labels:
+    app: flask-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-web
+  template:
+    metadata:
+      labels:
+        app: flask-web
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: linux7-225-133-223
+      containers:
+        - name: flask-crud-app
+          image: cd-docker-hub.szxy5.artifactory.cd-cloud-artifact.tools.huawei.com/onemae/flaskcrudapp:1
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: flask-db-secret
+                  key: database_url
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-web-service
+  namespace: devops
+spec:
+  type: NodePort
+  selector:
+    app: flask-web
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+      nodePort: 30011
